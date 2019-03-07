@@ -108,6 +108,20 @@ fi
 }
 
 
+function input_ok(){
+   var_name=`echo $1`
+   read -p " $var_name : " val
+
+   read -p ' Confirm? [y|n] ' ans
+   if [[ ! $ans =~ "y"  ]]; then
+      input_ok $var_name
+   fi
+   
+   # when the function is called with a variable name as argument,
+   # when user confirms then the '$val' is set as the final value 
+   # for that variable. 
+}
+
 
 # STARTING MAIN CODE
 #
@@ -124,6 +138,15 @@ cat <<EOF
  You have the following disk partitions:
 
 $(fdisk -l | grep Disk | grep dev | awk -F ":" '{print $1}' | sed -e 's/Disk //g')
+
+
+EOF
+pause
+
+clear; cat <<EOF
+ ┌───────────────────────────┐
+ │ Check available disk free │
+ └───────────────────────────┘
  
  To see the information about the size of the disk,
  you can use the following commands:
@@ -147,11 +170,35 @@ $(fdisk -l | grep Disk | grep dev | awk -F ":" '{print $1}' | sed -e 's/Disk //g
 EOF
 echo
 
+cmd="echo;echo"
 cmd1="lsblk|grep -Ei \"disk|part\""
-cmd2="echo;echo"
-cmd3="fdisk -l|grep Disk|grep dev"
-cmd4="vgdisplay|grep PE"
-runit "$cmd1 && $cmd2 && $cmd3 && $cmd2 && $cmd4"
+cmd2="fdisk -l|grep Disk|grep dev"
+cmd3="vgdisplay|grep PE"
+
+command_options=("$cmd1" "$cmd2" "$cmd3" "Run all above together" "Skip")
+
+select freespace in "${command_options[@]}"
+do
+   case $freespace in
+   $cmd1)
+      runit "$cmd1"
+      ;; 
+   $cmd2)
+      runit "$cmd2"
+      ;;
+   $cmd3)
+      runit "$cmd3" 
+      ;;
+   Run*)
+      runit "$cmd1 && $cmd && $cmd2 && $cmd && $cmd3"
+      ;;
+   Skip)
+      break
+      ;;
+
+   esac
+
+done
 
 
 clear; cat <<EOF
@@ -219,7 +266,10 @@ clear; cat <<EOF
  +1024000K
 
 EOF
-          read -p  ' Size: ' size
+          #read -p  ' Size: ' size
+          input_ok size
+          size=$val
+
           clear
           echo;echo "${b} fdisk created new Linux LVM with the following result: ${n} ";echo
           fdisk /dev/$dsk <<EOF
@@ -293,11 +343,18 @@ clear; cat <<EOF
  Now you provide a name and size of new volume group.
  
 EOF
-          read -p ' Volume group name: ' volgrp
-          read -p ' Volume Size: ' volsize
-          cmd="vgcreate -s $volsize $volgrp $newdisk"
+          #read -p ' Volume group name: ' vgname
+          #read -p ' Volume Size: ' vgsize
+          echo ' Please enter volume group name:'
+          input_ok vgname
+          vgname=$val
+          echo ' Please enter volume group size:'
+          input_ok vgsize
+          vgsize=$val
+          
+          cmd="vgcreate -s $vgsize $vgname $newdisk"
           runit "${cmd}"
-          vgdisplay $volgrp
+          vgdisplay $vgname
 
 clear; cat <<EOF
 
@@ -308,10 +365,10 @@ clear; cat <<EOF
  Note:
  partition name: $newdisk
  partition size: $size 
- volume group name: $volgrp
- volume group size: $volsize
+ volume group name: $vgname
+ volume group size: $vgsize
          
- After creating volume group $volgrp then we create a new logical volume
+ After creating volume group $vgname then we create a new logical volume
  on that volume group.
 
  So we provide a name and a size for the logical volum.
@@ -327,11 +384,19 @@ clear; cat <<EOF
 EOF
 
 
-   read -p ' Logical volume name: ' lvname
-   read -p ' Logical volume size: ' lvsize
-   cmd="lvcreate -n /dev/$volgrp/$lvname -L $lvsize $volgrp"
+   # read -p ' Logical volume name: ' lvname
+   # read -p ' Logical volume size: ' lvsize
+   echo ' Pleae enter Logical volume name:'
+   input_ok lvname
+   lvname=$val
+
+   echo ' Pleae enter Logical volume size:'
+   input_ok lvsize
+   lvsize=$val
+   
+   cmd="lvcreate -n /dev/$vgname/$lvname -L $lvsize $vgname"
    runit "${cmd}"
-   cmd="lvdisplay /dev/$volgrp/$lvname"
+   cmd="lvdisplay /dev/$vgname/$lvname"
    runit "${cmd}"
 
 clear; cat <<EOF
@@ -343,8 +408,8 @@ clear; cat <<EOF
  Note:
  partition name: $newdisk
  partition size: $size 
- volume group name: $volgrp
- volume group size: $volsize
+ volume group name: $vgname
+ volume group size: $vgsize
  logical volume name: $lvname
  logical volume size: $lvsize
 
@@ -352,7 +417,7 @@ clear; cat <<EOF
 
 EOF
 
-   cmd="mkfs.xfs /dev/$volgrp/$lvname"
+   cmd="mkfs.xfs /dev/$vgname/$lvname"
    runit "${cmd}"
 
 
@@ -368,10 +433,45 @@ EOF
   esac
 done
 
+lvsize=$(echo $lvsize | tr -dc '0-9')
+vgsize=$(echo $vgsize | tr -dc '0-9')
+
+
+function extending() {
+echo 'I am extending the volume!'
+
+}
+
+
+if [[ $lvsize -lt $vgsize ]]; then
+
+   opts=("yes" "Continue with no extension" "Exit script")
+
+   select ans in "${opts[@]}"
+       do
+          case $ans in
+          yes)
+             extending
+             break
+             ;;
+   
+          'Continue with no extension')
+             echo "Skip over extending the logical volume"
+             break
+             ;;
+
+          'Exit script')
+             echo Exiting script!
+             exit 0
+          esac
+      done
+fi
+
+   
 pause 'Reverting operations!' 
 
 lvremove -f /dev/$lvdsk/$lvname &>/dev/null
-vgremove -f $volgrp &>/dev/null
+vgremove -f $vgname &>/dev/null
 fdisk /dev/$dsk <<EOF &>/dev/null
 d
 
