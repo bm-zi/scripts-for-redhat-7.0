@@ -122,12 +122,14 @@ function input_ok(){
    # for that variable. 
 }
 
+# ##############################
+# STARTING MAIN PART OF THE CODE
+# ##############################
 
-# STARTING MAIN CODE
-#
+# SET THE TERMINAL WINDOW SIZE 
+printf '\e[8;30;80t'
 
 # First provide some informatn from disk geometry to user
-
 clear; echo;echo " ${b} LVMS ON REDHAT/CENTOS 7.0 ${n}"
 cat <<EOF
 
@@ -147,7 +149,6 @@ clear; cat <<EOF
  ┌───────────────────────────┐
  │ Check available disk free │
  └───────────────────────────┘
- 
  To see the information about the size of the disk,
  you can use the following commands:
 
@@ -166,7 +167,6 @@ clear; cat <<EOF
 
   In following both options will be prompt to run and 
   you can compare the results.
-   
 EOF
 echo
 
@@ -224,6 +224,8 @@ clear; cat <<EOF
  the operation:
 
 EOF
+pause
+clear
 
 
 disks=($(lsblk | grep disk | awk '{print $1}'))
@@ -249,29 +251,33 @@ do
           q          
 EOF
 pause
+echo; echo ' TAKE A NOT ON THE SIZE SET BY COMMAND fdisk,'
+      echo ' FROM THE LAST LINES OF THE ABOVE OUTPUT ...'
+pause
 clear; cat <<EOF
  
- ┌────────────────────┐
- │ New Partition Size │
- └────────────────────┘
+ ┌──────────────────────────┐
+ │ Set a new Partition Size │
+ └──────────────────────────┘
+ On partition /dev/$dsk a new partition with the size that
+ you will provide, will be created.
 
- Note:
- partition name: /dev/$dsk 
+ Now provide the size required for new partitionof type
+ LVM linux.
  
- Now provide the size required for new LVM linux partition. 
- size examples: 
+ Size examples: 
  +400M 
  +2G 
  +1.5G (Not accepted, has to be integer) 
  +1024000K
 
 EOF
-          #read -p  ' Size: ' size
           input_ok size
           size=$val
 
           clear
-          echo;echo "${b} fdisk created new Linux LVM with the following result: ${n} ";echo
+          printf '\e[8;50;70t'
+          echo "${b} fdisk created new Linux LVM with the following result: ${n} ";echo
           fdisk /dev/$dsk <<EOF
           n
           
@@ -286,28 +292,25 @@ EOF
 EOF
 pause
 
-clear; cat <<EOF
+# Resizing back the terminal to 80X30
+printf '\e[8;30;80t'
 
+clear; cat <<EOF
  ┌─────────────────────────────┐
  │ Creating Partition by fdisk │
  └─────────────────────────────┘
+ Command fdisk /dev/$dsk : 
+  - has created a partition with the size of $size via command 'n' 
+  -  and type of 8e (Linux LVM), via command 't'.
 
- The below command:
- fdisk /dev/$dsk
-
-  - has created a partition with the size of $size via command 'n' and
-  - type of 8e (Linux LVM), via command 't'.
-
- 
  The new partition layout is as following:
-
+ ---------------------------------------
 "$(fdisk -l | egrep ^\\/dev\\/)"
 
  Note
  ~~~~ 
  In order to make this change be noticed by operating system, we use
  command partprobe to inform the OS of partition table changes.
-
 EOF
 
 runit 'partprobe'
@@ -320,31 +323,23 @@ clear; cat <<EOF
  ┌───────────────────────┐
  │ Creating Volume Group │
  └───────────────────────┘
- 
- Note:
+ Information:
  partition name or physical volume name: $newdisk
  partition size: $size
 
  Now it is time to create a volume group based on the 
  available new created partition.
-
  
  Size option format from vgcreate man page:
-  
+ ------------------------------------------  
  -s, --physicalextentsize PhysicalExtentSize[bBsSkKmMgGtTpPeE]
      Sets  the  physical extent size on physical volumes of this volume group.
-     A size suffix (k for kilobytes up to t for terabytes) is optional, 
      megabytes is the default if no suffix is present. 
-     The value must be at  least  1  sector  for LVM2  format  
-     (where the sector size is the largest sector size of the PVs currently used in the VG) 
-     or 8KiB for LVM1 format and it must be a power of 2. The default is 4 MiB.
-
+     Size must be a power of 2. The default is 4 MiB.
  
  Now you provide a name and size of new volume group.
  
 EOF
-          #read -p ' Volume group name: ' vgname
-          #read -p ' Volume Size: ' vgsize
           echo ' Please enter volume group name:'
           input_ok vgname
           vgname=$val
@@ -361,8 +356,7 @@ clear; cat <<EOF
  ┌─────────────────────────┐
  │ Creating Logical Volume │
  └─────────────────────────┘
- 
- Note:
+ Information:
  partition name: $newdisk
  partition size: $size 
  volume group name: $vgname
@@ -383,9 +377,6 @@ clear; cat <<EOF
 
 EOF
 
-
-   # read -p ' Logical volume name: ' lvname
-   # read -p ' Logical volume size: ' lvsize
    echo ' Pleae enter Logical volume name:'
    input_ok lvname
    lvname=$val
@@ -394,7 +385,7 @@ EOF
    input_ok lvsize
    lvsize=$val
    
-   cmd="lvcreate -n /dev/$vgname/$lvname -L $lvsize $vgname"
+   cmd="lvcreate -n $lvname -L $lvsize $vgname"
    runit "${cmd}"
    cmd="lvdisplay /dev/$vgname/$lvname"
    runit "${cmd}"
@@ -404,8 +395,7 @@ clear; cat <<EOF
  ┌───────────────────────────────┐
  │ Formatting The Logical Volume │
  └───────────────────────────────┘
- 
- Note:
+ Information:
  partition name: $newdisk
  partition size: $size 
  volume group name: $vgname
@@ -413,71 +403,122 @@ clear; cat <<EOF
  logical volume name: $lvname
  logical volume size: $lvsize
 
- Lets format the new logical volume $lvname
+ Lets format and mount the new logical volume $lvname
 
 EOF
 
    cmd="mkfs.xfs /dev/$vgname/$lvname"
    runit "${cmd}"
-
-
-
+   read -p "Enter directory name under /mnt as  mount point for $lvname: " dir
+   cmd="mkdir -p /mnt/$dir"
+   runit "${cmd}"
+   cmd="mount /dev/$vgname/$lvname /mnt/$dir"
+   runit "${cmd}"
+   cmd="df -h | grep $dir"
+ 
           break
           ;;
        quit)
           exit 0 
           break
-          ;;          
+          ;;
        *)
-            echo "You didn't choose any disk!"
+          echo "You didn't choose any disk!"
   esac
 done
 
+
 lvsize=$(echo $lvsize | tr -dc '0-9')
 vgsize=$(echo $vgsize | tr -dc '0-9')
-
-
-function extending() {
-echo 'I am extending the volume!'
-
-}
-
+space_free=echo "$(($vgsize-$lvsize))"
 
 if [[ $lvsize -lt $vgsize ]]; then
 
-   opts=("yes" "Continue with no extension" "Exit script")
+clear; cat<<EOF
+ ┌──────────────────────────┐
+ │ Extending Logical Volume │
+ └──────────────────────────┘
+ The size of logical volume $lvname is less than the size
+ of volume group $vgname. It can be either extended or add
+ a new volume. If you want to add new volume you have to 
+ stop this program and run the following command:
 
-   select ans in "${opts[@]}"
-       do
-          case $ans in
-          yes)
-             extending
-             break
-             ;;
-   
-          'Continue with no extension')
-             echo "Skip over extending the logical volume"
-             break
-             ;;
-
-          'Exit script')
-             echo Exiting script!
-             exit 0
-          esac
-      done
+ lvcreate -n /dev/$vgname/new_lv -L lv_size $vgname 
+ 
+ Your free space on $vgname to create a new volume is: $space_free
+EOF
+   read -p 'Please enter the extension size: ' extsize
+   cmd="lvextend -L $extsize /dev/$vgname/$lvname"
+   runit "${cmd}"
+   cmd="xfs_growfs /dev/$vgname/$lvname"
+   runit "${cmd}"
+   cmd="lvdisplay /dev/$vgname/$lvname"
+   runit "${cmd}"
 fi
 
-   
-pause 'Reverting operations!' 
 
-lvremove -f /dev/$lvdsk/$lvname &>/dev/null
-vgremove -f $vgname &>/dev/null
-fdisk /dev/$dsk <<EOF &>/dev/null
+
+clear
+echo "REVERTING OPERATIONS OR KEEPING THE CHANGES"
+echo "-------------------------------------------"
+answers=("Revert all operations" "Keep the changes")
+select ans in "${answers[@]}"
+do
+   case $ans in
+   Revert*)
+      umount /mnt/$dir &>/dev/null
+      lvremove -f /dev/$lvdsk/$lvname &>/dev/null
+      vgremove -f $vgname &>/dev/null
+      fdisk /dev/$dsk <<EOF &>/dev/null
 d
 
 w
 EOF
-partprobe &>/dev/null
+      partprobe &>/dev/null
+      clear
+      echo "${b} Revert completed! ${n}"
+      runit "vgs && echo;echo && lvs && echo;echo && fdisk -l /dev/$dsk"
+      break
+      ;;
+    Keep*)
+       clear; cat<<EOF
+ ┌──────────────┐
+ │ Final Result │
+ └──────────────┘
+ Information:
+ partition name: $newdisk
+ partition size: $size
+ volume group name: $vgname
+ volume group size: $vgsize
+ logical volume name: $lvname
+ logical volume size: $lvsize
+
+ Operation completed!
+
+EOF
+      break
+      ;;
+   *)
+      clear; cat<<EOF
+ ┌──────────────┐
+ │ Final Result │
+ └──────────────┘
+ Information:
+ partition name: $newdisk
+ partition size: $size 
+ volume group name: $vgname
+ volume group size: $vgsize
+ logical volume name: $lvname
+ logical volume size: $lvsize
+
+ Operation completed!
+
+EOF
+      break
+      ;;
+   esac
+       
+done
 
 echo
 echo OPERATION COMPLETED!
