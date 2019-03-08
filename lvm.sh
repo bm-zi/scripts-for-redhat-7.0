@@ -129,6 +129,7 @@ function input_ok(){
 # SET THE TERMINAL WINDOW SIZE 
 printf '\e[8;30;80t'
 
+lastDisk=$(lsblk  | grep disk | awk '{print $1}' | tail -1)
 # First provide some informatn from disk geometry to user
 clear; echo;echo " ${b} LVMS ON REDHAT/CENTOS 7.0 ${n}"
 cat <<EOF
@@ -141,7 +142,6 @@ cat <<EOF
 
 $(fdisk -l | grep Disk | grep dev | awk -F ":" '{print $1}' | sed -e 's/Disk //g')
 
-
 EOF
 pause
 
@@ -149,24 +149,24 @@ clear; cat <<EOF
  ┌───────────────────────────┐
  │ Check available disk free │
  └───────────────────────────┘
- To see the information about the size of the disk,
- you can use the following commands:
+  Command options to get disk information:
 
-  - Option 1:
-  # lsblk | grep -Ei "disk|part"
+  - Option 1:   lsblk | grep -Ei "disk|part"
+  - Option 2:   fdisk -l | grep Disk | grep dev 
+  - Option 3:   vgdisplay | grep PE
+  - Option 4:   fdisk /dev/$lastDisk
 
-  - Option 2:
-  # fdisk -l | grep Disk | grep dev 
-
-  - Option 3:
-  # vgdisplay | grep PE
-  
   Note:
   Option 1 is giving more accurate size estimate,
-  rather than other options.
+  rather than options 1 and 2.
 
-  In following both options will be prompt to run and 
-  you can compare the results.
+  Note:
+  For option 4 you run fdisk with the following sequences:
+  n,Enter,Enter,Enter,Enter,Enter,q
+  Do not use 'w' to save the changes in partition tables.
+  At the end of the output you will see what size set by
+  fdisk automatically. (This is the size of real free space.)
+
 EOF
 echo
 
@@ -174,8 +174,9 @@ cmd="echo;echo"
 cmd1="lsblk|grep -Ei \"disk|part\""
 cmd2="fdisk -l|grep Disk|grep dev"
 cmd3="vgdisplay|grep PE"
+cmd4="fdisk /dev/$lastDisk"
 
-command_options=("$cmd1" "$cmd2" "$cmd3" "Run all above together" "Skip")
+command_options=("$cmd1" "$cmd2" "$cmd3" "$cmd4" "Run options 1,2,3 together" "Skip")
 
 select freespace in "${command_options[@]}"
 do
@@ -189,44 +190,22 @@ do
    $cmd3)
       runit "$cmd3" 
       ;;
+   $cmd4)
+      runit "$cmd4"
+      ;;
    Run*)
-      runit "$cmd1 && $cmd && $cmd2 && $cmd && $cmd3"
+      runit "$cmd1 && $cmd && $cmd2 && $cmd && $cmd3" 
       ;;
    Skip)
       break
       ;;
-
    esac
-
 done
 
 
-clear; cat <<EOF
-
- ┌──────────────────────────┐
- │ Checking Free Disk Space │
- └──────────────────────────┘
- 
- A quick way to see how much disk space is available for a new 
- partition is to create a partition using fdisk command and then
- exit from fdisk program without saving information onto the disk.
- (Do not use command 'w').
- 
- We run fdisk and type command 'n' (new partition) for the first
- prompt, then accept default value for all the following prompts 
- coming after by pressing enter.
-
- On the output of last prompt you will see the real available size 
- for creating a new disk.
-
- Now here in following select the the disk and then script will 
- simulate running fdisk and creates a new partition without saving
- the operation:
-
-EOF
-pause
 clear
-
+echo "Choose your disk"
+echo "................"
 
 disks=($(lsblk | grep disk | awk '{print $1}'))
 options=($disks "quit")
@@ -236,26 +215,21 @@ select dsk in "${options[@]}"
 do
    case $dsk in
        vd*|sd*)
-          
-          echo ┌───────────────────────────────────────────┐
-          echo "  Partition inforamtion for disk: /dev/$dsk"
-          echo └───────────────────────────────────────────┘
- 
+          echo  " ------------------------------- "
+          echo  " Partition inforamtion for disk: "  
+          echo  "           /dev/$dsk             "
+          echo  " ------------------------------- "
           fdisk /dev/$dsk <<EOF
           n
           
           
           
           
-         
-          q          
+          
+          q
 EOF
 pause
-echo; echo ' TAKE A NOT ON THE SIZE SET BY COMMAND fdisk,'
-      echo ' FROM THE LAST LINES OF THE ABOVE OUTPUT ...'
-pause
 clear; cat <<EOF
- 
  ┌──────────────────────────┐
  │ Set a new Partition Size │
  └──────────────────────────┘
@@ -274,11 +248,13 @@ clear; cat <<EOF
 EOF
           input_ok size
           size=$val
+          cat <<EOF 
 
-          clear
-          printf '\e[8;50;70t'
-          echo "${b} fdisk created new Linux LVM with the following result: ${n} ";echo
-          fdisk /dev/$dsk <<EOF
+ fdisk created new LVM LINUX partition with the following 
+ sequences:  n,Enter,Enter,Enter,$size,t,Enter,8e,p,w
+
+EOF
+          fdisk /dev/$dsk <<EOF &>/dev/null 
           n
           
          
@@ -292,8 +268,6 @@ EOF
 EOF
 pause
 
-# Resizing back the terminal to 80X30
-printf '\e[8;30;80t'
 
 clear; cat <<EOF
  ┌─────────────────────────────┐
@@ -301,7 +275,7 @@ clear; cat <<EOF
  └─────────────────────────────┘
  Command fdisk /dev/$dsk : 
   - has created a partition with the size of $size via command 'n' 
-  -  and type of 8e (Linux LVM), via command 't'.
+  - and type of 8e (Linux LVM), via command 't'.
 
  The new partition layout is as following:
  ---------------------------------------
@@ -347,12 +321,10 @@ EOF
           input_ok vgsize
           vgsize=$val
           
-          cmd="vgcreate -s $vgsize $vgname $newdisk"
+          cmd="vgcreate -s $vgsize $vgname $newdisk && echo;echo && vgdisplay $vgname"
           runit "${cmd}"
-          vgdisplay $vgname
 
 clear; cat <<EOF
-
  ┌─────────────────────────┐
  │ Creating Logical Volume │
  └─────────────────────────┘
