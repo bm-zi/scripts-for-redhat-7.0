@@ -1,5 +1,7 @@
 #!/usr/bin/bash
 
+# Author: bm-zi
+
 function br(){
 printf '# '
 sleep 2
