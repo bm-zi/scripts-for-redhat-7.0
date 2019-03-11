@@ -52,7 +52,7 @@ select disk in "${disk_list[@]}"
 do
    case $disk in
        vd*|sd*)
-          disk_selected="/dev/$dsk"
+          disk_selected="/dev/$disk"
           break
           ;;
        exit*)
