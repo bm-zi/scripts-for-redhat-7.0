@@ -3,38 +3,74 @@
 # Author: bm-zi
 # PROGRAM TO MANAGE LVM AND SWAP PARTITION
 
+function add_swap() {
+select_disk; echo
+echo "Check free space available on $disk from following: "
+lsblk /dev/$disk | grep -Ei "disk|part"
+echo
+read -p 'Enter the swap size in megabyte: ' ss
+swapsize="+${ss}M"
+echo "A new swap partition with fdisk command will be created,"
+echo "with the following sequence:"
+echo "n p Enter Enter $swapsize t Enter 82 w" ;echo
+fdisk /dev/$disk <<EOF &>/dev/null 
+n
+p
 
 
+$swapsize
+t
 
-function fdisk_fct (){
-clear
-select_disk
-fdisk $disk_selected 
+82
+w
+EOF
+
+partprobe &>/dev/null
+
+echo "Result:"
+lsblk /dev/$disk | grep -Ei "disk|part"
+
 }
 
+
+# Function for menu 1 
+function fdisk_fct (){
+select_disk
+if [[ $disk == ?d? ]]; then 
+   fdisk $disk_selected
+fi
+}
 
 function select_disk() {
 echo "Choose your disk"
 echo "................"
 disks=($(lsblk | grep disk | awk '{print $1}'))
-options=($disks "quit")
+disk_list=($disks "exit menu")
 PS3="Your choice: "
 
-select dsk in "${options[@]}"
+select disk in "${disk_list[@]}"
 do
-   case $dsk in
+   case $disk in
        vd*|sd*)
-          disk_selected=/dev/$dsk
+          disk_selected="/dev/$dsk"
           break
           ;;
-        *)
-           echo "You didn't choose any disk!"
+       exit*)
+          echo "exiting this menu!"
+          break
+          ;;
+       *)
+          echo "You didn't choose any disk!"
+          
+          
+          ;;
      esac
 done
 }
 
+# Function for menu 9
 function part_layout (){
-   clear; 
+   echo '..................'
    echo 'list block devices'
    echo '..................'
    lsblk | grep -Ei '(disk|part)'
@@ -70,8 +106,7 @@ function selected_item (){
       echo 'lv extension  has been selected'
 
    elif [[ $selected =~ 'add swap' ]]; then
-      echo 'add swap has been selected'
-
+      add_swap
    elif [[ $selected =~ 'remove swap' ]]; then
       echo 'remove swap has been selected'
 
@@ -89,7 +124,6 @@ function selected_item (){
    fi
    echo;
    read -p 'Press Enter back to menu ' ans
-   clear
    ./$(basename "$0") 
 }
 
@@ -102,7 +136,7 @@ function menu_from_array (){
       if [ 1 -le "$REPLY" ] && [ "$REPLY" -le $# ]; then
          echo "The selected item is $item";echo
          selected_item "$item"
-         break;
+         break
       else
          echo "Wrong selection: Select any number from 1-$#"
       fi
