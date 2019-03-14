@@ -3,6 +3,23 @@
 # Author: bm-zi
 # PROGRAM TO MANAGE LVM AND SWAP PARTITION
 
+# DEFINED VARIABLES
+b=$(tput smso)
+n=$(tput rmso)
+
+function input_ok(){
+   var_name=`echo $1`; read -p " $var_name : " val
+   read -p ' Confirm? [y|n] ' ans
+   if [[ ! $ans =~ "y"  ]]; then
+      input_ok $var_name
+   fi
+   
+   # when the function is called with a variable name as argument,
+   # when user confirms then the '$val' is set as the final value 
+   # for that variable. 
+}
+
+
 function select_disk() {
 echo "Choose your disk"
 echo "................"
@@ -18,8 +35,7 @@ do
           break
           ;;
        exit*)
-          echo "exiting this menu!"
-          break
+          exec $(readlink -f "$0")
           ;;
        *)
           echo "You didn't choose any disk!"
@@ -28,6 +44,7 @@ do
 done
 }
 
+# f8
 function update_fstab () { 
 vim /etc/fstab
 }
@@ -41,7 +58,7 @@ function run_cmd (){
         echo "Enter to run the following command or q to quit"
         echo "..............................................."
         read -p "# $a " input
-        if [[ $input =~ "q" ]]; then break; fi
+        if [[ $input =~ "q" ]]; then return 0 ; fi
         eval $a
 
 }
@@ -53,11 +70,9 @@ disk="/dev/$disk"
 disk_nr=$(fdisk -l /dev/vda | grep -E ^/dev | grep 'vda3' | awk '{print $1}' | grep -Eo '[0-9]')
 
 cat<<EOF
-
 The swap partition $swappart will be deleted by fdisk command,"
 with the following sequence:
 d $disk_nr w
-
 EOF
 
 
@@ -72,6 +87,7 @@ echo "Result:"
 fdisk -l $disk | grep -E ^/dev
 }
 
+# f7
 function rem_swap () { 
 echo Available swap partitions:
 swapparts=($(swapon -s | awk '{print $1}' | awk '{if(NR>1)print}') "quit")
@@ -131,31 +147,6 @@ function run_cmds (){
 }
 
 
-function fdisk_newswap () {
-disk="$1"
-cat<<EOF
-A new swap partition with fdisk command will be created,"
-with the following sequence:
-n p Enter Enter $swapsize t Enter 82 w
-EOF
-echo 
-fdisk /dev/$disk <<EOF &>/dev/null
-n
-p
-
-
-$swapsize
-t
-
-82
-w
-EOF
-partprobe &>/dev/null
-echo "fdisk completed!"
-echo "Result:"
-fdisk -l /dev/$disk | grep -E ^/dev
-}
-
 function digit_check (){
 if ! [[ "$1" =~ ^[0-9]+$ ]]
     then
@@ -165,6 +156,7 @@ if ! [[ "$1" =~ ^[0-9]+$ ]]
 fi
 }
 
+# f6
 function add_swap() {
 echo
 select_disk
@@ -177,11 +169,34 @@ read -p 'Enter the swap size in megabyte: ' ss
 if digit_check $ss; then
    swapsize="+${ss}M"
    
-   fdisk_newswap "$disk"
+cat<<EOF
+Note
+~~~~
+A new swap partition with has been created by
+command fdisk with following sequence
+n Enter Enter Enter $swapsize t Enter 82 w
+EOF
+echo
+fdisk $disk_selected <<EOF &>/dev/null
+n
+
+
+
+$swapsize
+t
+
+82
+w
+EOF
+partprobe &>/dev/null
+echo "Result:"
+fdisk -l /dev/$disk | grep -E ^/dev
+
 
    swapdisk=$(fdisk -l /dev/vda | grep -E ^/dev | tail -1 | awk '{print $1}')
    cmd="mkswap $swapdisk"
    run_cmd "$cmd"
+
    diskuid=$(blkid  $swapdisk | awk '{print $2}')
    fstabEntry="$diskuid swap swap defaults 0 0"
 
@@ -200,35 +215,44 @@ else
 fi
 }
 
-
+# f1
 function fdisk_fct (){
+
+echo Available Disks and Partitions:
+echo ...............................
+lsblk
+echo
+
 select_disk
 if [[ $disk == ?d? ]]; then 
+   clear
+   echo "# fdisk $disk_selected"
    fdisk $disk_selected
-   partprobe &>/dev/null
+   run_cmd "partprobe"
 fi
 }
 
 
 
-function part_layout (){
-   echo '..................'
+function part_info (){
+   clear
+   echo 
    echo 'list block devices'
    echo '..................'
    lsblk | grep -Ei '(disk|part)'
-   echo;echo
+   echo
    echo 'disk partition table'
    echo '....................'
    fdisk -l|grep Disk|grep dev
-   echo;echo
+   echo
    echo 'information about volume groups'
    echo '...............................'
    vgs
-   echo;echo
+   echo
    echo 'information about logical volumes'
    echo '.................................'
    lvs
-   echo;echo
+   echo
    echo 'information about swap'
    echo '......................'
    swapon -a   
@@ -236,36 +260,73 @@ function part_layout (){
    echo
 } 
 
+### f4
+function lv_create () {
+  echo "Select from available VG's: "; vgs=($(vgs | tail -n +2 | awk '{print $1}') 'help' 'quit')
+  select vg in "${vgs[@]}"
+    do
+      case $vg in
+        quit) exec $(readlink -f "$0");;
+        help) 
+cat <<EOF
+
+ Information about selecting the size
+ ------------------------------------ 
+ -L, --size LogicalVolumeSize[bBsSkKmMgGtTpPeE]
+
+ Examples of volume size:
+ 100M
+ 2048K
+ 2G 
+
+EOF
+              read -p 'Press any key to continue'; echo;;
+           *) echo You selected: $vg; echo; echo VG information:; eval vgdisplay $vg;
+              echo Enter logical volume name:; input_ok lvname; lvname=$val; echo Enter logical volume size:; input_ok lvsize; lvsize=$val
+              cmd="lvcreate -n $lvname -L ${lvsize}M $vg"; echo $cmd; echo; cmd="lvdisplay /dev/$vg/$lvname"; echo "$lvname information:"; eval $cmd; echo
+              read -p 'Press any key to contine'; exec $(readlink -f "$0");;
+      esac
+    done
+}
+
+
+
+function vg_create_command (){
+  echo; echo 'partitions available'; part_list=($(lsblk -l | grep part | awk '{print $1}') 'quit')
+  select part in "${part_list[@]}" 
+    do
+      case $part in
+        quit) exec $(readlink -f "$0");;
+           *) partition=/dev/$part; echo; echo selected partition: $partition; echo 'Enter volume group name: '; input_ok vgname; vgname=$val; echo 'Enter volume group size: '; input_ok vgsize; vgsize=$val
+              cmd="vgcreate -s ${vgsize}M $vgname $partition"; echo Command to be executed: ; echo $cmd; echo Available VGs: ; eval vgs; read -p 'Press any key to contine'; exec $(readlink -f "$0");;
+      esac 
+    done
+}
+
+### f2
+function vg_create () {
+echo A partiotion is required for volume group:
+  select part in 'create a new partition' 'use existing partition' 'quit'; do
+    case $part in
+      cre*) fdisk_fct; vg_create_command break;;
+      use*) vg_create_command break;; 
+         *) exec $(readlink -f "$0");;
+    esac; done
+}
 
 function selected_item (){
    selected=$1
-   if [[ $selected =~ 'fdisk command' ]] ; then
-      fdisk_fct
-   elif [[ $selected =~ 'vg creation' ]]; then
-      echo 'vg creation has been selected'
-
-   elif [[ $selected =~ 'vg extentsion' ]] ; then
-      echo 'vg extentsion has been selected'
-
-   elif [[ $selected =~ 'lv creation' ]]; then
-      echo 'lv creation  has been selected'
-
-   elif [[ $selected =~ 'lv extension' ]]; then
-      echo 'lv extension  has been selected'
-
-   elif [[ $selected =~ 'add swap' ]]; then
-      add_swap
-   elif [[ $selected =~ 'remove swap' ]]; then
-      rem_swap
-   elif [[ $selected =~ 'update fstab' ]]; then
-      update_fstab 
-   elif [[ $selected =~ 'partition layout' ]]; then
-      part_layout
-   elif [[ $selected =~ 'quit' ]]; then
-      echo exiting program ...
-      exit 0
-   else
-      echo 'Cannot recognize the function!'
+   if [[ $selected =~ 'fdisk command' ]] ; then fdisk_fct
+   elif [[ $selected =~ 'vg creation' ]]; then vg_create
+   elif [[ $selected =~ 'vg extentsion' ]] ; then echo 'vg extentsion has been selected'
+   elif [[ $selected =~ 'lv creation' ]]; then lv_create
+   elif [[ $selected =~ 'lv extension' ]]; then echo 'lv extension  has been selected'
+   elif [[ $selected =~ 'add swap' ]]; then add_swap
+   elif [[ $selected =~ 'remove swap' ]]; then rem_swap
+   elif [[ $selected =~ 'update fstab' ]]; then update_fstab 
+   elif [[ $selected =~ 'partition information' ]]; then part_info
+   elif [[ $selected =~ 'quit' ]]; then echo exiting program ...; exit 0
+   else  echo 'Cannot recognize the function!'
    fi
    echo;
    read -p 'Press Enter back to menu ' ans
@@ -299,7 +360,7 @@ operations=('fdisk command'
             'add swap'
             'remove swap'
             'update fstab'
-            'partition layout'
+            'partition information'
             'quit'
 )
 
