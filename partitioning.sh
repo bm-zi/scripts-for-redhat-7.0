@@ -8,8 +8,8 @@ b=$(tput smso)
 n=$(tput rmso)
 
 function input_ok(){
-   var_name=`echo $1`; read -p " $var_name : " val
-   read -p ' Confirm? [y|n] ' ans
+   var_name=`echo $1`; read -p "[$var_name]: " val
+   read -p 'Confirm? [y|n] ' ans
    if [[ ! $ans =~ "y"  ]]; then
       input_ok $var_name
    fi
@@ -44,9 +44,20 @@ do
 done
 }
 
-# f8
-function update_fstab () { 
-vim /etc/fstab
+### f8
+function update_fstab () {
+  echo; echo 'partitions available'; part_list=($(lsblk -l | grep part | awk '{print $1}') 'quit')
+  select part in "${part_list[@]}"
+    do
+      case $part in
+        quit) exec $(readlink -f "$0");;
+           *) partition=/dev/$part; echo; echo selected partition: $partition; uuid=$(blkid -o value -s UUID $partition); fstype=$(blkid -o value -s TYPE $partition);
+              printf 'Enter the mount point '; input_ok Dir; Dir=$val; mkdir -p $Dir; echo 'Following entry will be added to fstab file:'; 
+              entry="UUID=$uuid $Dir $fstypy defaults 0 0"; echo "$entry"; read -p 'Press any key to continue '; echo "$entry" >> /etc/fstab;
+              vim /etc/fstab; cmds=("mount -a" "echo \"mkfs.xfs $partition\""); run_cmds "${cmds[@]}"; read -p 'Press any key to continue '; exec $(readlink -f "$0")
+      esac
+    done
+ 
 }
 
 function run_cmd (){
@@ -87,7 +98,7 @@ echo "Result:"
 fdisk -l $disk | grep -E ^/dev
 }
 
-# f7
+### f7
 function rem_swap () { 
 echo Available swap partitions:
 swapparts=($(swapon -s | awk '{print $1}' | awk '{if(NR>1)print}') "quit")
@@ -156,7 +167,7 @@ if ! [[ "$1" =~ ^[0-9]+$ ]]
 fi
 }
 
-# f6
+### f6
 function add_swap() {
 echo
 select_disk
@@ -215,7 +226,7 @@ else
 fi
 }
 
-# f1
+### f1
 function fdisk_fct (){
 
 echo Available Disks and Partitions:
@@ -282,7 +293,7 @@ cat <<EOF
 EOF
               read -p 'Press any key to continue'; echo;;
            *) echo You selected: $vg; echo; echo VG information:; eval vgdisplay $vg;
-              echo Enter logical volume name:; input_ok lvname; lvname=$val; echo Enter logical volume size:; input_ok lvsize; lvsize=$val
+              printf 'Enter logical volume name '; input_ok lvname; lvname=$val; printf 'Enter logical volume size '; input_ok lvsize; lvsize=$val
               cmd="lvcreate -n $lvname -L ${lvsize}M $vg"; echo $cmd; echo; cmd="lvdisplay /dev/$vg/$lvname"; echo "$lvname information:"; eval $cmd; echo
               read -p 'Press any key to contine'; exec $(readlink -f "$0");;
       esac
@@ -297,7 +308,7 @@ function vg_create_command (){
     do
       case $part in
         quit) exec $(readlink -f "$0");;
-           *) partition=/dev/$part; echo; echo selected partition: $partition; echo 'Enter volume group name: '; input_ok vgname; vgname=$val; echo 'Enter volume group size: '; input_ok vgsize; vgsize=$val
+           *) partition=/dev/$part; echo; echo selected partition: $partition; printf 'Enter volume group name '; input_ok vgname; vgname=$val; printf 'Enter volume group size '; input_ok vgsize; vgsize=$val
               cmd="vgcreate -s ${vgsize}M $vgname $partition"; echo Command to be executed: ; echo $cmd; echo Available VGs: ; eval vgs; read -p 'Press any key to contine'; exec $(readlink -f "$0");;
       esac 
     done
@@ -314,11 +325,39 @@ echo A partiotion is required for volume group:
     esac; done
 }
 
+
+function vgextend_cmd () {
+vgname=$1
+select ext in "extend to maximum available" "extend by specified size" "quit"
+  do
+  case $ext in
+    quit) exec $(readlink -f "$0");;
+    *maximum*) echo volume $vgname will be extended to maximum available space;;
+    *size) printf "Enter the size of $vgname to be extended "; input_ok vg_size; vgsize=$val;
+  esac
+  done
+}
+
+### f3
+function vg_extend () {
+  echo 'Select volume group to be extended:'; vgs=($(vgs | tail -n +2 | awk '{print $1}') 'quit')
+  select vg in "${vgs[@]}"
+    do
+      case $vg in
+        quit) exec $(readlink -f "$0");;
+           *) echo You selected: $vg; echo; echo VG information:; eval vgdisplay $vg; 
+              vgextend_cmd $vg
+              read -p 'Press any key to contine'; exec $(readlink -f "$0");;
+      esac
+    done
+}
+
+
 function selected_item (){
    selected=$1
    if [[ $selected =~ 'fdisk command' ]] ; then fdisk_fct
    elif [[ $selected =~ 'vg creation' ]]; then vg_create
-   elif [[ $selected =~ 'vg extentsion' ]] ; then echo 'vg extentsion has been selected'
+   elif [[ $selected =~ 'vg extentsion' ]] ; then vg_extend 
    elif [[ $selected =~ 'lv creation' ]]; then lv_create
    elif [[ $selected =~ 'lv extension' ]]; then echo 'lv extension  has been selected'
    elif [[ $selected =~ 'add swap' ]]; then add_swap
